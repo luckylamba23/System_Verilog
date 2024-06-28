@@ -1,0 +1,30 @@
+class singleton;
+  static int a;
+  static singleton obj;
+  
+  local function new (int a);
+    this.a = a;
+  endfunction
+  
+  static function singleton create(int a);
+    if(obj==null)
+      obj=new(a);
+    return obj;
+  endfunction
+  
+  function void display();
+    $display("Value of OBJ:%d",obj.a);
+  endfunction
+  
+endclass
+
+module tb;
+singleton S1,S2;
+  initial begin
+    S1=singleton::create(5);
+    S1.display;
+    S2=singleton::create(6);
+    S2.display;
+  end
+    
+endmodule
