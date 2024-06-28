@@ -1,0 +1,52 @@
+class address;
+  int house_no ;
+  string city;
+  int pin_code;
+  string state;
+  
+  function void display_address();
+    $display("[HOUSE NO] :%0d , [CITY] :%S , [PIN CODE] : %0d , [STATE] : %s",house_no,city,pin_code,state);
+  endfunction
+  
+endclass
+
+class student;
+  string name ;
+  int roll_no;
+  string course;
+  int year;
+  string stream;
+  
+  
+  function void display_student();
+    $display("[STUDENT NAME] :%s , [ROLL NO] :%0d , [COURSE] : %s , [YEAR] : %0d , [STREAM] :%s",name, roll_no, course, year, stream);
+  endfunction
+  
+endclass
+
+
+module tb;
+  address a1;
+  student s1;
+  
+  initial begin
+    a1 = new();
+    s1 = new();
+  a1.house_no = 69;
+  a1.city = "Meerut";
+  a1.pin_code = 6969;
+  a1.state = "Uttar pradesh";
+  
+  s1.name = "Lucky";
+  s1.roll_no = 22904006;
+  s1.course = "M.Tech";
+  s1.year = 2;
+  s1.stream = "EC";
+  
+  a1.display_address();
+  s1.display_student();
+  
+  end
+  
+  
+endmodule
