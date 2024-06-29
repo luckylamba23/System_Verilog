@@ -1,0 +1,131 @@
+`include "uvm_macros.svh"
+import uvm_pkg::*;
+
+
+class eth_seq_item extends uvm_sequence_item;
+
+  function new(string name = "eth_seq_item");
+    super.new(name);
+  endfunction
+
+  rand bit [3:0] src_addr, dst_addr;
+  rand bit [7:0] payload;
+  `uvm_object_utils_begin(eth_seq_item)
+    `uvm_field_int(src_addr, UVM_DEFAULT);
+    `uvm_field_int(dst_addr, UVM_DEFAULT);
+    `uvm_field_int(payload, UVM_DEFAULT);
+  `uvm_object_utils_end
+endclass
+
+class eth_sequence extends uvm_sequence#(eth_seq_item);
+  `uvm_object_utils(eth_sequence)
+
+  function new(string name = "eth_sequence");
+    super.new(name);
+  endfunction
+  
+  virtual task body();
+    eth_seq_item eth_item;
+    eth_item = eth_seq_item::type_id::create("eth_item");
+    start_item(eth_item);
+    assert(!eth_item.randomize()) `uvm_error("eth_sequence", "Randomization failed");
+    `uvm_info("eth_sequence", $sformatf("Sending: %s", eth_item.convert2string()), UVM_MEDIUM);
+    finish_item(eth_item);
+  endtask
+
+endclass
+
+class eth_sequencer extends uvm_sequencer#(eth_seq_item);
+  `uvm_component_utils(eth_sequencer)
+  function new(string name = "eth_sequencer", uvm_component parent = null);
+    super.new(name, parent);
+  endfunction
+
+endclass
+class eth_driver extends uvm_driver#(eth_seq_item);
+  `uvm_component_utils(eth_driver)
+  function new(string name = "eth_driver", uvm_component parent = null);
+    super.new(name, parent);
+  endfunction
+
+  virtual task run_phase(uvm_phase phase);
+    forever begin
+      eth_seq_item eth_item;
+      seq_item_port.get_next_item(eth_item);
+      `uvm_info("eth_driver", $sformatf("Received: %s", eth_item.convert2string()), UVM_LOW);
+      seq_item_port.item_done();
+    end
+  endtask
+
+endclass
+
+class eth_agent extends uvm_agent;
+  `uvm_component_utils(eth_agent)
+  eth_driver drv;
+  eth_sequencer seqr;
+
+  function new(string name = "eth_agent", uvm_component parent = null);
+    super.new(name, parent);
+  endfunction
+  
+//Build_Phase
+  virtual function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+    drv = eth_driver::type_id::create("drv", this);
+    seqr = eth_sequencer::type_id::create("seqr", this);
+  endfunction
+
+  //connect-Phase
+  virtual function void connect_phase(uvm_phase phase);
+    super.connect_phase(phase);
+    drv.seq_item_port.connect(seqr.seq_item_export);
+  endfunction
+
+endclass
+
+class eth_env extends uvm_env;
+  `uvm_component_utils(eth_env)
+  eth_agent agt;
+  function new(string name = "eth_env", uvm_component parent = null);
+    super.new(name, parent);
+  endfunction
+  
+  // Build phase
+  virtual function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+    agt = eth_agent::type_id::create("agt", this);
+  endfunction
+
+endclass
+
+class eth_test extends uvm_test;
+  `uvm_component_utils(eth_test)
+  eth_env env;
+  eth_sequence seq;
+  function new(string name = "eth_test", uvm_component parent = null);
+    super.new(name, parent);
+  endfunction
+
+  // Build phase
+  virtual function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+    env = eth_env::type_id::create("env", this);
+    seq = eth_sequence::type_id::create("seq");
+  endfunction
+
+  // Run phase
+  virtual task run_phase(uvm_phase phase);
+    phase.raise_objection(this);
+    seq.start(env.agt.seqr);
+    phase.drop_objection(this);
+  endtask
+
+endclass
+
+module eth_tb;
+
+  initial begin
+    run_test("eth_test");
+  end
+
+endmodule
