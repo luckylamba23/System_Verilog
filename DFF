@@ -1,0 +1,220 @@
+/////DESIGN
+interface dff_if;
+  logic din;
+  logic clk;
+  logic rst;
+  logic dout;  
+endinterface
+
+module dff(dff_if dif);
+  always @(posedge dif.clk) begin
+    if(dif.rst == 1)
+      dif.dout <= 1'b0;
+    else
+      dif.dout <= dif.din;
+  end
+endmodule
+
+
+//////TESTBENCH
+class transaction;
+  rand bit din;
+  bit dout;
+
+  /////DEEP_COPY
+  function transaction copy();     
+    copy = new(); 
+    copy.din = this.din;
+    copy.dout = this.dout;
+  endfunction
+
+  function void display(input string tag);
+    $display("[%s]: DIN: %b , DOUT: %b", tag, din, dout);
+  endfunction
+endclass
+
+//////GENERATOR
+class generator;
+  transaction tr;
+  mailbox #(transaction) mbx;    /////MAILBOX FROM GEN TO DRV
+  mailbox #(transaction) mbxref;   ////MAILBOX FROM GEN TO SCO
+  event sconext;   
+  event done;
+  int count;
+
+  function new (mailbox #(transaction) mbx, mailbox #(transaction) mbxref);
+    this.mbx = mbx;
+    this.mbxref = mbxref;
+    tr = new();
+  endfunction
+
+  task run();
+    repeat(count) begin
+      assert(tr.randomize) $error("RANDOMIZATION FAIL");
+      mbx.put(tr.copy());
+      mbxref.put(tr.copy());
+      tr.display("GEN");
+      @(sconext);
+    end
+    ->done;
+  endtask
+endclass
+
+//////DRIVER
+class driver;
+  transaction tr;
+  mailbox #(transaction) mbx;
+  virtual dff_if dif;  //////VIRTUAL INTERFACE 
+
+  function new (mailbox #(transaction) mbx, virtual dff_if dif);
+    this.mbx = mbx;
+    this.dif = dif;
+  endfunction
+
+  task reset();
+    dif.rst <= 1'b1;                ////RESET IS ASSERTED
+    repeat(5) @(posedge dif.clk);    ///WAIT FOR 5 CLK CYCLE
+    dif.rst <= 1'b0;
+    @(posedge dif.clk);              ///WAIT FOR A CLK CYCLE
+    $display("[DRV]: RESET DONE");
+  endtask
+
+  task run();
+    forever begin
+      mbx.get(tr);            ////GET THE DATA FROM MAILBOX
+      tr.display("DRV");
+      dif.din <= tr.din;      //// ASSIGN THE TRANSACTION DIN TO VIRTUAL INTERFACE
+      @(posedge dif.clk);     /////WAIT FOR A CLK CYCLE
+    end
+  endtask
+endclass
+
+//////MONITOR
+class monitor;
+  transaction tr;
+  mailbox #(transaction) mbx;  /////MAILBOX FROM GEN TO DRV
+  virtual dff_if dif;  
+
+  function new (mailbox #(transaction) mbx, virtual dff_if dif);
+    this.mbx = mbx;
+    this.dif = dif;
+    tr = new();
+  endfunction
+
+  task run();
+    forever begin
+      repeat(2) @(posedge dif.clk);    /////WAIT FOR 2 CLK CYCLE
+      tr.dout = dif.dout;
+      mbx.put(tr);     
+      tr.display("MON");
+    end
+  endtask
+endclass
+
+//////SCOREBOARD
+class scoreboard;
+  transaction tr;
+  transaction trref;
+  mailbox #(transaction) mbx;    /////MAILBOX FROM GEN TO DRV
+  mailbox #(transaction) mbxref;   /////MAILBOX FROM GEN TO SCO
+  event sconext;
+
+  function new (mailbox #(transaction) mbx, mailbox #(transaction) mbxref);
+    this.mbx = mbx;
+    this.mbxref = mbxref;
+  endfunction
+
+  task run();
+    forever begin
+      mbx.get(tr);
+      mbxref.get(trref);
+      tr.display("SCO");
+      trref.display("REFRENCE");
+
+      if (tr.dout == trref.dout)
+        $display("DATA MATCHED");
+      else
+        $display("DATA MISMATCHED");
+      $display("----------------------------------------------");
+      ->sconext;
+    end
+  endtask
+endclass
+
+//////ENVIRONMENT
+class environment;
+  generator gen;
+  driver drv;
+  monitor mon;
+  scoreboard sco;
+
+  mailbox #(transaction) gdmbx; /////MAILBOX FROM GEN TO DRV
+  mailbox #(transaction) msmbx;  /////MAILBOX FROM MON TO SCO
+  mailbox #(transaction) mbxref;   /////MAILBOX FROM GEN TO SCO
+
+  event done;
+
+  virtual dff_if dif;   ////VIRTUAL INTERFACE
+
+  function new (virtual dff_if dif);  
+    this.dif = dif;
+    gdmbx = new();
+    mbxref = new();
+    gen = new(gdmbx, mbxref);
+    drv = new(gdmbx, dif);  
+    msmbx = new();
+    mon = new(msmbx, dif); 
+    sco = new(mbxref, msmbx);
+    done = gen.done;
+    gen.sconext = sco.sconext;
+  endfunction
+
+  task pre_test();
+    drv.reset();
+  endtask
+
+  task test;
+    fork
+      gen.run();
+      drv.run();
+      mon.run();
+      sco.run();
+    join_any
+  endtask
+
+  task post_test();
+    wait (gen.done.triggered);
+    $finish();
+  endtask
+
+  task run();
+    pre_test();
+    test();
+    post_test();
+  endtask
+endclass
+
+///////TESTBENCH_TOP
+module tb;
+  dff_if dif();  
+  dff dut(dif);
+
+  //////GENERATION OF CLOCK
+  initial dif.clk <= 0;
+  always #10 dif.clk <= ~dif.clk;
+
+  environment env;
+
+  initial begin
+    dif.din <= 0; 
+    env = new(dif);
+    env.gen.count = 30;
+    env.run();
+  end
+  
+  ///////FOR WAVEFORM
+  initial begin
+    $dumpfile("dump.vcd");
+    $dumpvars();
+  end
+endmodule
